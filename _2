@@ -1,188 +1,283 @@
---// CONFIGURATION
+
 local fake_transparency = 0.8
-local animationId = "rbxassetid://17603135849"
 
---// SERVICES
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local Player = Players.LocalPlayer
-local Workspace = game:GetService("Workspace")
+local Motors = {
+["Left Hip"] = 0,
+["Neck"] = 0,
+["Left Shoulder"] = 0,
+["Right Hip"] = 0,
+["Right Shoulder"] = 0
+}
+local TS = game:GetService("TweenService")
+local count2, maxcount2, count
 
---// ANIMATION MODULE
+local function getnext(tbl, number)
+local c = 100
+local rtrnv = 0
+for i, v in pairs(tbl) do
+if i > number and i - number < c then
+c = i - number
+rtrnv = i
+end
+end
+return rtrnv
+end
+
+local function kftotbl(kf)
+local tbl3 = {}
+for i, v in pairs(kf:GetDescendants()) do
+if v:IsA("Pose") then
+tbl3[string.sub(v.Name, 1, 1) .. string.sub(v.Name, #v.Name, #v.Name)] = v.CFrame
+end
+end
+return tbl3
+end
+
+local function getSpeed(lastTimeStamp, currentTimeStamp)
+if currentTimeStamp == 0 then return 0 end
+return math.abs(lastTimeStamp - currentTimeStamp)
+end
+
+local function getAnimation(animationId)
+local animationObject
+local S, E = pcall(function()
+animationObject = game:GetObjects(animationId)[1]
+end)
+return animationObject
+end
+
 local Main = {}
 Main.__index = Main
 
 function Main.LoadDummy(DummyChar)
-	local self = setmetatable({}, Main)
-	self.char = DummyChar
-	return self
-end
-
-local function getAnimation(animationId)
-	local success, anim = pcall(function()
-		return game:GetObjects(animationId)[1]
-	end)
-	return success and anim or nil
-end
-
-local function kftotbl(kf)
-	local tbl = {}
-	for _, pose in pairs(kf:GetDescendants()) do
-		if pose:IsA("Pose") then
-			tbl[string.sub(pose.Name, 1, 1) .. string.sub(pose.Name, #pose.Name)] = pose.CFrame
-		end
-	end
-	return tbl
-end
-
-local function getSpeed(lastTimeStamp, currentTimeStamp)
-	return math.abs(currentTimeStamp - lastTimeStamp)
-end
-
-local function getnext(tbl, number)
-	local closest, minDist = nil, math.huge
-	for i in pairs(tbl) do
-		local diff = i - number
-		if diff > 0 and diff < minDist then
-			closest = i
-			minDist = diff
-		end
-	end
-	return closest or 0
+local metatable = {}
+setmetatable(metatable, Main)
+metatable.char = DummyChar
+return metatable
 end
 
 function Main:LoadAnimation(animationId)
-	local animObj = getAnimation(animationId)
-	if not animObj then return end
-	local self = setmetatable({}, Main)
-	self.char = self.char
-	self.animObject = animObj
-	return self
+local Character = self.char
+local animationObject = getAnimation(animationId)
+if animationObject == nil then return end
+print(animationObject)
+local metatable = {}
+setmetatable(metatable, Main)
+metatable.char = Character
+metatable.animObject = animationObject
+return metatable
 end
 
 function Main:Play()
-	local Character = self.char
-	local animObj = self.animObject
-	local animData = {}
-	for _, kf in pairs(animObj:GetChildren()) do
-		if kf:IsA("Keyframe") then
-			animData[kf.Time] = kftotbl(kf)
-		end
-	end
-
-	local joints = {
-		Lg = Character.Torso:FindFirstChild("Left Hip"),
-		Rg = Character.Torso:FindFirstChild("Right Hip"),
-		Lm = Character.Torso:FindFirstChild("Left Shoulder"),
-		Rm = Character.Torso:FindFirstChild("Right Shoulder"),
-		To = Character.HumanoidRootPart:FindFirstChild("RootJoint"),
-		Hd = Character.Torso:FindFirstChild("Neck")
-	}
-	local ogC0s = {}
-	for k, joint in pairs(joints) do
-		ogC0s[k] = joint and joint.C0
-	end
-
-	local times = {Lg=0, Rg=0, Lm=0, Rm=0, To=0, Hd=0}
-	local last = 0
-	local count = -1
-	self.played = false
-
-	task.spawn(function()
-		while task.wait() do
-			if self.played then
-				for k, joint in pairs(joints) do
-					if joint and ogC0s[k] then
-						joint.C0 = ogC0s[k]
-					end
-				end
-				break
-			end
-
-			local nextT = getnext(animData, count)
-			local pose = animData[nextT]
-			local delay = getSpeed(last, nextT)
-
-			for k, joint in pairs(joints) do
-				local cframe = pose[k]
-				if cframe and joint and ogC0s[k] then
-					local ti = TweenInfo.new(delay + times[k])
-					times[k] = 0
-					TweenService:Create(joint, ti, {C0 = ogC0s[k] * cframe}):Play()
-				else
-					times[k] = times[k] + delay
-				end
-			end
-
-			task.wait(delay)
-			last = nextT
-			count = nextT
-		end
-	end)
+local Character = self.char
+local animationObject = self.animObject
+local Looped = true
+local anim = {}
+for i, v in pairs(animationObject:GetChildren()) do
+if v:IsA("Keyframe") then
+anim[v.Time] = kftotbl(v)
+end
+end
+local LH = Character.Torso["Left Hip"].C0
+local RH = Character.Torso["Right Hip"].C0
+local LS = Character.Torso["Left Shoulder"].C0
+local RS = Character.Torso["Right Shoulder"].C0
+local RoH = Character.HumanoidRootPart["RootJoint"].C0
+local N = Character.Torso["Neck"].C0
+count = -1
+local lastTimeStamp = 0
+local char = Character
+self.played = false
+local times = {
+Lg = 0,
+Rg = 0,
+Lm = 0,
+Rm = 0,
+To = 0,
+Hd = 0
+}
+local timepassed = 0
+local lasttime = tick()
+while task.wait() do
+timepassed = tick() - lasttime
+if self.played then
+Character.Torso["Left Hip"].C0 = LH
+Character.Torso["Right Hip"].C0 = RH
+Character.Torso["Left Shoulder"].C0 = LS
+Character.Torso["Right Shoulder"].C0 = RS
+Character.HumanoidRootPart["RootJoint"].C0 = RoH
+Character.Torso["Neck"].C0 = N
+break
+end
+if not Looped then
+self.played = true
+end
+for i, oasjdadlasdkadkldjkl in pairs(anim) do
+local asdf = getnext(anim, count)
+local v = anim[asdf]
+count2 = 0
+maxcount2 = asdf - count
+count = asdf
+wait(asdf - count)
+count2 = maxcount2
+if v["Lg"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.Lg + getSpeed(lastTimeStamp, asdf))
+times.Lg = 0
+TS:Create(Character.Torso["Left Hip"], Ti, { C0 = LH * v["Lg"] }):Play()
+else
+times.Lg = times.Lg + getSpeed(lastTimeStamp, asdf)
+end
+if v["Rg"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.Rg + getSpeed(lastTimeStamp, asdf))
+times.Rg = 0
+TS:Create(Character.Torso["Right Hip"], Ti, { C0 = RH * v["Rg"] }):Play()
+else
+times.Rg = times.Rg + getSpeed(lastTimeStamp, asdf)
+end
+if v["Lm"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.Lm + getSpeed(lastTimeStamp, asdf))
+times.Lm = 0
+TS:Create(Character.Torso["Left Shoulder"], Ti, { C0 = LS * v["Lm"] }):Play()
+else
+times.Lm = times.Lm + getSpeed(lastTimeStamp, asdf)
+end
+if v["Rm"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.Rm + getSpeed(lastTimeStamp, asdf))
+times.Rm = 0
+TS:Create(Character.Torso["Right Shoulder"], Ti, { C0 = RS * v["Rm"] }):Play()
+else
+times.Rm = times.Rm + getSpeed(lastTimeStamp, asdf)
+end
+if v["To"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.To + getSpeed(lastTimeStamp, asdf))
+times.To = 0
+TS:Create(Character.HumanoidRootPart["RootJoint"], Ti, { C0 = RoH * v["To"] }):Play()
+else
+times.To = times.To + getSpeed(lastTimeStamp, asdf)
+end
+if v["Hd"] then
+local Ti = TweenInfo.new(getSpeed(lastTimeStamp, asdf) + times.Hd + getSpeed(lastTimeStamp, asdf))
+times.Hd = 0
+TS:Create(Character.Torso["Neck"], Ti, { C0 = N * v["Hd"] }):Play()
+else
+times.Hd = times.Hd + getSpeed(lastTimeStamp, asdf)
+end
+task.wait(getSpeed(lastTimeStamp, asdf))
+lastTimeStamp = asdf
+end
+end
 end
 
 function Main:Stop()
-	self.played = true
+self.played = true
 end
 
---// EMPER-STYLE REANIMATION
-do
-	local Rig = Players:CreateHumanoidModelFromDescription(
-		Players:GetHumanoidDescriptionFromUserId(Player.UserId), Enum.HumanoidRigType.R6
-	)
+local animationplayer = Main
+local LoadedAnimationTable = {}
 
-	local RootPart = Rig:WaitForChild("HumanoidRootPart")
-	local RealChar = Player.Character
-
-	if RealChar then RealChar:BreakJoints() end
-	Rig.Name = Player.Name
-	Rig.Humanoid.DisplayName = Player.DisplayName
-	Rig.Animate.Enabled = false
-
-	for _, part in ipairs(Rig:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.Transparency = fake_transparency
-			part.CanCollide = false
-		end
-	end
-
-	Rig.Parent = workspace
-	Player.Character = Rig
-	workspace.CurrentCamera.CameraSubject = Rig:FindFirstChildOfClass("Humanoid")
-
-	--// SYNC ANGLES
-	local Motor6Ds = {}
-	for _, d in pairs(RealChar:GetDescendants()) do
-		if d:IsA("Motor6D") and Rig:FindFirstChild(d.Part0.Name) and Rig:FindFirstChild(d.Part1.Name) then
-			Motor6Ds[d] = {
-				Part0 = Rig[d.Part0.Name],
-				Part1 = Rig[d.Part1.Name]
-			}
-		end
-	end
-
-	RunService.PostSimulation:Connect(function()
-		for motor, ref in pairs(Motor6Ds) do
-			local delta = ref.Part0.CFrame:ToObjectSpace(ref.Part1.CFrame)
-			local axis, angle = delta:ToAxisAngle()
-			sethiddenproperty(motor, "ReplicateCurrentAngle6D", axis * angle)
-			sethiddenproperty(motor, "ReplicateCurrentOffset6D", delta.Position)
-		end
-	end)
-
-	RunService.PreSimulation:Connect(function()
-		for _, bp in ipairs(Rig:GetDescendants()) do
-			if bp:IsA("BasePart") then
-				bp.CanCollide = false
-			end
-		end
-	end)
-
-	--// LOAD YOUR ANIMATION
-	local animationPlayer = Main.LoadDummy(Rig)
-	local track = animationPlayer:LoadAnimation(animationId)
-	task.defer(function()
-		track:Play()
-	end)
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+game.Players.LocalPlayer.Character.Archivable = true
+local FakeCharacter = game.Players.LocalPlayer.Character:Clone()
+Player.Character:BreakJoints()
+Player.Character = nil
+local Connection
+Connection = game.Workspace.DescendantAdded:Connect(function(c)
+if c.Name == "Animate" and c.Parent == Player.Character then
+c.Enabled = false
+Connection:Disconnect()
 end
+end)
+repeat task.wait() until game.Players.LocalPlayer.Character
+task.wait(0.1)
+local RealChar = Player.Character
+RealChar.Archivable = true
+while wait() do
+FakeCharacter.Name = "non"
+end
+FakeCharacter.Parent = workspace
+local rig = animationplayer.LoadDummy(FakeCharacter)
+
+-- Comment out the following lines to not load and play any animation
+-- local track = rig:LoadAnimation("rbxassetid://17603135849")
+-- coroutine.wrap(function()
+--     track:Play()
+-- end)()
+
+task.spawn(function()
+for i, LS in ipairs(FakeCharacter:GetChildren()) do
+if LS:IsA("LocalScript") then
+LS.Enabled = false
+task.wait(0.1)
+LS.Enabled = false
+end
+end
+end)
+
+for i, Part in ipairs(FakeCharacter:GetDescendants()) do
+if Part:IsA("BasePart") then
+Part.Transparency = fake_transparency
+end
+end
+
+for i, Decal in ipairs(FakeCharacter:GetDescendants()) do
+if Decal:IsA("Decal") then
+Decal.Transparency = fake_transparency
+end
+end
+
+Player.Character = FakeCharacter
+
+local function MotorAngle()
+if RealChar:FindFirstChild("Torso") then
+for MotorName, Motor6DAngle in pairs(Motors) do
+if RealChar:FindFirstChild("Torso"):FindFirstChild(MotorName) then
+RealChar:FindFirstChild("Torso"):FindFirstChild(MotorName).CurrentAngle = Motor6DAngle
+end
+end
+end
+end
+
+local function SetAngles()
+    if FakeCharacter:FindFirstChild("Torso") then
+        for MotorName, _ in pairs(Motors) do
+            if FakeCharacter:FindFirstChild("Torso"):FindFirstChild(MotorName) then
+                local Motor = FakeCharacter:FindFirstChild("Torso"):FindFirstChild(MotorName)
+                local Part0 = Motor.Part0
+                local Part1 = Motor.Part1
+                local delta = (Part0.CFrame:inverse() * Part1.CFrame) * Motor.C1:inverse()
+                local axis, angle = delta:ToAxisAngle()
+                sethiddenproperty(Motor, "ReplicateCurrentAngle6D", axis * angle)
+                sethiddenproperty(Motor, "ReplicateCurrentOffset6D", delta.Position)
+            end
+        end
+    end
+end
+
+
+local function BaseCol()
+for i, Part in ipairs(RealChar:GetChildren()) do
+if Part:IsA("BasePart") then
+Part.CanCollide = false
+end
+end
+for i, Part in ipairs(FakeCharacter:GetChildren()) do
+if Part:IsA("BasePart") then
+Part.CanCollide = false
+end
+end
+end
+
+RunService.Heartbeat:Connect(function()
+SetAngles()
+MotorAngle()
+pcall(function()
+RealChar.HumanoidRootPart.CFrame = FakeCharacter.Torso.CFrame
+end)
+end)
+
+RunService.PreSimulation:Connect(function()
+BaseCol()
+end)
+
