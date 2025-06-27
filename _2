@@ -1,187 +1,188 @@
+--// CONFIGURATION
+local fake_transparency = 0.8
+local animationId = "rbxassetid://17603135849"
 
+--// SERVICES
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Player = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
 
--- written by Emper
--- anyone who has the method can receive this code
+--// ANIMATION MODULE
+local Main = {}
+Main.__index = Main
 
--- whoever originally wrote it was trying to optimize it
--- so ill be doing that here
--- although you dont really need to optimize stuff thats
--- not done in loops
--- but ill be doing it anyway since thats what they were trying to do
+function Main.LoadDummy(DummyChar)
+	local self = setmetatable({}, Main)
+	self.char = DummyChar
+	return self
+end
 
-do
-	-- Settings:
-	
-	local DefaultAnimations = true -- doesnt work in velocity because it doesnt allow u to run localscripts
-	local DisableCharacterCollisions = true
-	local InstantRespawn = true
-	local ParentCharacterToRig = true
-	local RigTransparency = 1
-	
-	--
-	
-	local CFrameidentity = CFrame.identity
-	local Inverse = CFrameidentity.Inverse
-	local ToAxisAngle = CFrameidentity.ToAxisAngle
-	local ToEulerAnglesXYZ = CFrameidentity.ToEulerAnglesXYZ
-	local ToObjectSpace = CFrameidentity.ToObjectSpace
-	
-	local Connections = {}
-	
-	local Disconnect = nil
-	
-	local game = game
-	local FindFirstChild = game.FindFirstChild
-	local FindFirstChildOfClass = game.FindFirstChildOfClass
-	local Players = FindFirstChildOfClass(game, "Players")
-	local LocalPlayer = Players.LocalPlayer
-	local Character = LocalPlayer.Character
-	local CharacterAdded = LocalPlayer.CharacterAdded
-	local Connect = CharacterAdded.Connect
-	local Wait = CharacterAdded.Wait
-	local Rig = Players:CreateHumanoidModelFromDescription(Players:GetHumanoidDescriptionFromUserId(LocalPlayer.UserId), Enum.HumanoidRigType.R6)
-	local RigAnimate = Rig.Animate
-	local RigHumanoid = Rig.Humanoid -- no need to do waitforchild here, its a safe index
-	local RigRootPart = RigHumanoid.RootPart
-	local RunService = FindFirstChildOfClass(game, "RunService")
-	local Workspace = FindFirstChildOfClass(game, "Workspace")
-	local GetDescendants = game.GetDescendants
-	local IsA = game.IsA
-	local WaitForChild = game.WaitForChild
-	
-	local BreakJoints = Instance.new("Model").BreakJoints
-	
-	local mathsin = math.sin
+local function getAnimation(animationId)
+	local success, anim = pcall(function()
+		return game:GetObjects(animationId)[1]
+	end)
+	return success and anim or nil
+end
 
-  local next = next
-  
-	local osclock = os.clock
-	
-	local replicatesignal = replicatesignal
-	
-	local RootPartCFrame = nil
-	
-	local Motor6Ds = {}
-	
-	local select = select
-	
-	local sethiddenproperty = sethiddenproperty
-	
-	local tableinsert = table.insert
-	
-	local Vector3 = Vector3
-	local Vector3new = Vector3.new
-	local Vector3zero = Vector3.zero
-	
-	RigAnimate.Enabled = false	
-	
-	Rig.Name = LocalPlayer.Name
-	RigHumanoid.DisplayName = LocalPlayer.DisplayName -- if theres no display it will be just name so this is fine
-	
-	if Character then
-		if replicatesignal then
-			if InstantRespawn then
-				replicatesignal(LocalPlayer.ConnectDiedSignalBackend)
-				task.wait(Players.RespawnTime - 0.1)
-				
-				local RootPart = FindFirstChild(Character, "HumanoidRootPart")
-
-				if RootPart then
-					RootPartCFrame = RootPart.CFrame
-				end
-				
-				replicatesignal(LocalPlayer.Kill)
-			end
-		else
-			BreakJoints(Character)
+local function kftotbl(kf)
+	local tbl = {}
+	for _, pose in pairs(kf:GetDescendants()) do
+		if pose:IsA("Pose") then
+			tbl[string.sub(pose.Name, 1, 1) .. string.sub(pose.Name, #pose.Name)] = pose.CFrame
 		end
 	end
-	
-	Character = Wait(CharacterAdded)
-	
-	local Animate = WaitForChild(Character, "Animate")
-	Animate.Enabled = false
+	return tbl
+end
 
-	local RootPart = WaitForChild(Character, "HumanoidRootPart")
-	RigRootPart.CFrame = RootPartCFrame or RootPart.CFrame
-	
-	Disconnect = Connect(RigHumanoid.Died, function()
-		for Index, Connection in Connections do
-			Disconnect(Connection)
+local function getSpeed(lastTimeStamp, currentTimeStamp)
+	return math.abs(currentTimeStamp - lastTimeStamp)
+end
+
+local function getnext(tbl, number)
+	local closest, minDist = nil, math.huge
+	for i in pairs(tbl) do
+		local diff = i - number
+		if diff > 0 and diff < minDist then
+			closest = i
+			minDist = diff
 		end
-		
-		if ParentCharacterToRig then
-			Character.Parent = Rig.Parent
+	end
+	return closest or 0
+end
+
+function Main:LoadAnimation(animationId)
+	local animObj = getAnimation(animationId)
+	if not animObj then return end
+	local self = setmetatable({}, Main)
+	self.char = self.char
+	self.animObject = animObj
+	return self
+end
+
+function Main:Play()
+	local Character = self.char
+	local animObj = self.animObject
+	local animData = {}
+	for _, kf in pairs(animObj:GetChildren()) do
+		if kf:IsA("Keyframe") then
+			animData[kf.Time] = kftotbl(kf)
 		end
-		
-		BreakJoints(Character)
-		Rig:Destroy()
-	end).Disconnect
-	
-	for Index, Descendant in next, GetDescendants(Character) do
-		if IsA(Descendant, "Motor6D") then
-			Motor6Ds[Descendant] = {
-				Part0 = Rig[Descendant.Part0.Name],
-				Part1 = Rig[Descendant.Part1.Name]
+	end
+
+	local joints = {
+		Lg = Character.Torso:FindFirstChild("Left Hip"),
+		Rg = Character.Torso:FindFirstChild("Right Hip"),
+		Lm = Character.Torso:FindFirstChild("Left Shoulder"),
+		Rm = Character.Torso:FindFirstChild("Right Shoulder"),
+		To = Character.HumanoidRootPart:FindFirstChild("RootJoint"),
+		Hd = Character.Torso:FindFirstChild("Neck")
+	}
+	local ogC0s = {}
+	for k, joint in pairs(joints) do
+		ogC0s[k] = joint and joint.C0
+	end
+
+	local times = {Lg=0, Rg=0, Lm=0, Rm=0, To=0, Hd=0}
+	local last = 0
+	local count = -1
+	self.played = false
+
+	task.spawn(function()
+		while task.wait() do
+			if self.played then
+				for k, joint in pairs(joints) do
+					if joint and ogC0s[k] then
+						joint.C0 = ogC0s[k]
+					end
+				end
+				break
+			end
+
+			local nextT = getnext(animData, count)
+			local pose = animData[nextT]
+			local delay = getSpeed(last, nextT)
+
+			for k, joint in pairs(joints) do
+				local cframe = pose[k]
+				if cframe and joint and ogC0s[k] then
+					local ti = TweenInfo.new(delay + times[k])
+					times[k] = 0
+					TweenService:Create(joint, ti, {C0 = ogC0s[k] * cframe}):Play()
+				else
+					times[k] = times[k] + delay
+				end
+			end
+
+			task.wait(delay)
+			last = nextT
+			count = nextT
+		end
+	end)
+end
+
+function Main:Stop()
+	self.played = true
+end
+
+--// EMPER-STYLE REANIMATION
+do
+	local Rig = Players:CreateHumanoidModelFromDescription(
+		Players:GetHumanoidDescriptionFromUserId(Player.UserId), Enum.HumanoidRigType.R6
+	)
+
+	local RootPart = Rig:WaitForChild("HumanoidRootPart")
+	local RealChar = Player.Character
+
+	if RealChar then RealChar:BreakJoints() end
+	Rig.Name = Player.Name
+	Rig.Humanoid.DisplayName = Player.DisplayName
+	Rig.Animate.Enabled = false
+
+	for _, part in ipairs(Rig:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = fake_transparency
+			part.CanCollide = false
+		end
+	end
+
+	Rig.Parent = workspace
+	Player.Character = Rig
+	workspace.CurrentCamera.CameraSubject = Rig:FindFirstChildOfClass("Humanoid")
+
+	--// SYNC ANGLES
+	local Motor6Ds = {}
+	for _, d in pairs(RealChar:GetDescendants()) do
+		if d:IsA("Motor6D") and Rig:FindFirstChild(d.Part0.Name) and Rig:FindFirstChild(d.Part1.Name) then
+			Motor6Ds[d] = {
+				Part0 = Rig[d.Part0.Name],
+				Part1 = Rig[d.Part1.Name]
 			}
 		end
 	end
-	
-	for Index, Descendant in next, GetDescendants(Rig) do
-		if IsA(Descendant, "BasePart") then
-			Descendant.Transparency = RigTransparency
+
+	RunService.PostSimulation:Connect(function()
+		for motor, ref in pairs(Motor6Ds) do
+			local delta = ref.Part0.CFrame:ToObjectSpace(ref.Part1.CFrame)
+			local axis, angle = delta:ToAxisAngle()
+			sethiddenproperty(motor, "ReplicateCurrentAngle6D", axis * angle)
+			sethiddenproperty(motor, "ReplicateCurrentOffset6D", delta.Position)
 		end
-	end
-	
-	Rig.Parent = Workspace
-	
-	if ParentCharacterToRig then
-		Character.Parent = Rig
-	end
-	
-	task.defer(function()
-		local CurrentCamera = Workspace.CurrentCamera
-		local CameraCFrame = CurrentCamera.CFrame
-		
-		LocalPlayer.Character = Rig
-		CurrentCamera.CameraSubject = RigHumanoid
-		
-		Wait(RunService.PreRender)
-		Workspace.CurrentCamera.CFrame = CameraCFrame
 	end)
-	
-	tableinsert(Connections, Connect(RunService.PostSimulation, function()
-		for Motor6D, Table in next, Motor6Ds do
-			local Part0 = Table.Part0
-			local Part1CFrame = Table.Part1.CFrame
-			
-			Motor6D.DesiredAngle = select(3, ToEulerAnglesXYZ(Part1CFrame, Part0.CFrame))
-			
-			local Delta = Inverse(Motor6D.C0) * ( Inverse(Part0.CFrame) *  Part1CFrame ) * Motor6D.C1
-			local Axis, Angle = ToAxisAngle(Delta)
-			
-			sethiddenproperty(Motor6D, "ReplicateCurrentAngle6D", Axis * Angle)
-			sethiddenproperty(Motor6D, "ReplicateCurrentOffset6D", Delta.Position)
-		end
-		
-		RootPart.AssemblyAngularVelocity = Vector3zero
-		RootPart.AssemblyLinearVelocity = Vector3zero
-		RootPart.CFrame = RigRootPart.CFrame + Vector3new(0, mathsin(osclock() * 15) * 0.004, 0)
-	end))
-	
-	tableinsert(Connections, Connect(RunService.PreSimulation, function()
-		for Index, BasePart in next, GetDescendants(Rig) do
-			if IsA(BasePart, "BasePart") then
-				BasePart.CanCollide = false
+
+	RunService.PreSimulation:Connect(function()
+		for _, bp in ipairs(Rig:GetDescendants()) do
+			if bp:IsA("BasePart") then
+				bp.CanCollide = false
 			end
 		end
-		
-		if DisableCharacterCollisions and not ParentCharacterToRig then
-			for Index, BasePart in next, GetDescendants(Character) do
-				if IsA(BasePart, "BasePart") then
-					BasePart.CanCollide = false
-				end
-			end
-		end
-	end))
+	end)
+
+	--// LOAD YOUR ANIMATION
+	local animationPlayer = Main.LoadDummy(Rig)
+	local track = animationPlayer:LoadAnimation(animationId)
+	task.defer(function()
+		track:Play()
+	end)
 end
